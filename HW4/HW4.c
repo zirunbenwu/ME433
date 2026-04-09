@@ -11,3 +11,7 @@ int main()
         sleep_ms(1000);
     }
 }
+
+draw pixel 
+draw letter 
+draw message 
