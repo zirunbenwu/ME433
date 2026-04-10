@@ -42,11 +42,14 @@ pico_set_program_version(HW2_Servo "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
 pico_enable_stdio_uart(HW2_Servo 0)
-pico_enable_stdio_usb(HW2_Servo 0)
+pico_enable_stdio_usb(HW2_Servo 1)
 
 # Add the standard library to the build
 target_link_libraries(HW2_Servo
-        pico_stdlib)
+        pico_stdlib
+        hardware_pwm
+        hardware_adc
+)
 
 # Add the standard include files to the build
 target_include_directories(HW2_Servo PRIVATE
