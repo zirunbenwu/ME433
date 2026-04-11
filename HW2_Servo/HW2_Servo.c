@@ -10,8 +10,8 @@
 // 1ms = 1500 counts (0 degrees)
 // 1.5ms = 2250 counts (90 degrees)
 // 2ms = 3000 counts (180 degrees)
-#define SERVO_MIN 1500
-#define SERVO_MAX 3000
+#define SERVO_MIN 750
+#define SERVO_MAX 3750
 #define SERVO_WRAP 30000  // 1.5MHz / 50Hz = 30000 for 50Hz period
 
 bool timer_interrupt_function(__unused struct repeating_timer *t) {
