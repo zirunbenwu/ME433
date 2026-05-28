@@ -1,23 +1,6 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file    FDCAN/FDCAN_Com_Polling/Src/main.c
-  * @author  MCD Application Team
-  * @brief   This sample code shows how to achieve Polling Process Communication
-  *          between two FDCAN units.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
+/* Readme */
+/* I'm sending "hello" and my friend is sending "goodbye"*/
+
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include <stdio.h>
@@ -53,9 +36,8 @@ FDCAN_HandleTypeDef hfdcan1;
 FDCAN_RxHeaderTypeDef rxHeader;
 FDCAN_TxHeaderTypeDef txHeader;
 uint8_t rxData[16U];
-static const uint8_t txData[] = {0x10, 0x32, 0x54, 0x76, 0x98, 0x00, 0x11, 0x22,
-                                 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0x00
-                                };
+static const uint8_t txData[] = {'h', 'e', 'l', 'l', 'o', 0, 0, 0,
+                                 0, 0, 0, 0, 0, 0, 0, 0};
 
 /* USER CODE END PV */
 
@@ -215,6 +197,7 @@ int main(void)
         printf("%02X ", rxData[i]);
     }
     printf("\r\n");
+    printf("RX text: %.16s\r\n", (char*)rxData);
 
     /* Compare received RX message to expected data. Ignore if not matching. */
     if ((rxHeader.Identifier == RX_ID) &&
@@ -350,6 +333,7 @@ void BSP_PB_Callback(Button_TypeDef Button)
         printf("%02X ", txData[i]);
     }
     printf("\r\n");
+    printf("TX text: %.16s\r\n", (char*)txData);
 
     /* Add message to TX FIFO */
     if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &txHeader, txData) != HAL_OK)
@@ -417,6 +401,14 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+
+  /* Infinite loop */
+  while (1)
+  {
+  }
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
 
   /* Infinite loop */
   while (1)
