@@ -3,8 +3,8 @@
 #include "pico/stdlib.h"
 #include "hardware/sync.h"
 
-#define PIN_SCK         19
-#define PIN_DT          18
+#define PIN_SCK         18
+#define PIN_DT          19
 
 #define MAX_SAMPLES     4000
 #define IIR_ALPHA       0.15f // 1st-order LPF; ~2 Hz cutoff at fs=80Hz; gives roughly -20 dB at 25-30 Hz
