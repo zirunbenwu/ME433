@@ -95,7 +95,8 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  char greeting[] = "STM32 ready\r\n";
+   HAL_UART_Transmit(&huart2, (uint8_t*)greeting, strlen(greeting), 100);
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -108,44 +109,20 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {
+    {
+      uint8_t rx_byte;
 
-	    // --- Transmit a hello message to the Pico ---
-	    char m[100];
-	    int number = 5;
-	    sprintf(m, "hello%d\r\n", number);
-	    HAL_UART_Transmit(&huart1, (uint8_t*)m, strlen(m), 100);
+      // PC (VCP/USART2) → Pico (USART1)
+      if (HAL_UART_Receive(&huart2, &rx_byte, 1, 1) == HAL_OK)
+      {
+        HAL_UART_Transmit(&huart1, &rx_byte, 1, 100);
+      }
 
-	    // --- Receive a response from the Pico, parse the number ---
-	    char rxMessage[100] = {0};            // zero-initialize so strlen works
-	    HAL_UART_Receive(&huart1, (uint8_t*)rxMessage, 99, 100);  // leave room for null terminator
-
-	    char buffer[1000] = {0};
-	    int index = 0;
-	    int rxNumber = 0;
-
-	    for (int i = 0; i < strlen(rxMessage); i++)
-	    {
-	      if (rxMessage[i] == '\n')
-	      {
-	        buffer[index] = '\0';                // null-terminate before parsing
-	        sscanf(buffer, "%d", &rxNumber);     // sscanf, not scanf
-	        index = 0;                            // reset for next line
-	      }
-	      else
-	      {
-	        buffer[index] = rxMessage[i];
-	        index++;
-	        if (index == 1000) index = 0;
-	      }
-	    }
-
-	    // --- Show what we parsed on the PC terminal ---
-	    char debug[100];
-	    sprintf(debug, "Received number: %d\r\n", rxNumber);
-	    HAL_UART_Transmit(&huart2, (uint8_t*)debug, strlen(debug), 100);
-
-	    HAL_Delay(500);  // don't spam too fast
+      // Pico (USART1) → PC (VCP/USART2)
+      if (HAL_UART_Receive(&huart1, &rx_byte, 1, 1) == HAL_OK)
+      {
+        HAL_UART_Transmit(&huart2, &rx_byte, 1, 100);
+      }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
