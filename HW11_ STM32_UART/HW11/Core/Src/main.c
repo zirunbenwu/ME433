@@ -2,17 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * @brief          : Main program body — interrupt-driven UART pass-through
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -46,7 +36,17 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+volatile uint8_t rx1_byte;   // single-byte landing spot for USART1 IT
+volatile uint8_t rx2_byte;   // single-byte landing spot for USART2 IT
 
+// Ring buffer: bytes from Pico (USART1) waiting to go to PC (USART2)
+#define BUF_SIZE 256
+volatile uint8_t buf1to2[BUF_SIZE];
+volatile uint16_t head1to2 = 0, tail1to2 = 0;
+
+// Ring buffer: bytes from PC (USART2) waiting to go to Pico (USART1)
+volatile uint8_t buf2to1[BUF_SIZE];
+volatile uint16_t head2to1 = 0, tail2to1 = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -95,36 +95,37 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  char greeting[] = "STM32 ready\r\n";
-   HAL_UART_Transmit(&huart2, (uint8_t*)greeting, strlen(greeting), 100);
+
+  // Send greeting on the PC's VCP so you know the STM32 booted
+  char greeting[] = "STM32 ready - pass-through active\r\n";
+  HAL_UART_Transmit(&huart2, (uint8_t*)greeting, strlen(greeting), 100);
+
+  // Arm interrupt-driven receive on both UARTs (1 byte at a time)
+  HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx1_byte, 1);
+  HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx2_byte, 1);
+
   /* USER CODE END 2 */
-
-  /* Initialize leds */
-  BSP_LED_Init(LED_GREEN);
-  BSP_LED_Init(LED_BLUE);
-
-  /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
-  BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-    {
-      uint8_t rx_byte;
 
-      // PC (VCP/USART2) → Pico (USART1)
-      if (HAL_UART_Receive(&huart2, &rx_byte, 1, 1) == HAL_OK)
-      {
-        HAL_UART_Transmit(&huart1, &rx_byte, 1, 100);
-      }
+	  while (1)
+	  {
+	    // Drain buf1to2 -> send to PC (USART2)
+	    if (head1to2 != tail1to2)
+	    {
+	      uint8_t b = buf1to2[tail1to2];
+	      tail1to2 = (tail1to2 + 1) % BUF_SIZE;
+	      HAL_UART_Transmit(&huart2, &b, 1, 100);
+	    }
 
-      // Pico (USART1) → PC (VCP/USART2)
-      if (HAL_UART_Receive(&huart1, &rx_byte, 1, 1) == HAL_OK)
-      {
-        HAL_UART_Transmit(&huart2, &rx_byte, 1, 100);
-      }
-    /* USER CODE END WHILE */
-
+	    // Drain buf2to1 -> send to Pico (USART1)
+	    if (head2to1 != tail2to1)
+	    {
+	      uint8_t b = buf2to1[tail2to1];
+	      tail2to1 = (tail2to1 + 1) % BUF_SIZE;
+	      HAL_UART_Transmit(&huart1, &b, 1, 100);
+	    }
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -141,9 +142,6 @@ void SystemClock_Config(void)
 
   __HAL_FLASH_SET_LATENCY(FLASH_LATENCY_0);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV4;
@@ -153,8 +151,6 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
@@ -169,20 +165,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
+  * @brief USART1 Initialization Function (to Pico)
   */
 static void MX_USART1_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -210,27 +196,13 @@ static void MX_USART1_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
+  * @brief USART2 Initialization Function (VCP to PC)
   */
 static void MX_USART2_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
@@ -246,50 +218,74 @@ static void MX_USART2_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
 }
 
 /**
   * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
   */
 static void MX_GPIO_Init(void)
 {
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+  * @brief  UART RX complete callback — fires whenever a byte arrives on either UART.
+  *         Forwards the byte to the other UART and re-arms the receive.
+  */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    // Byte from Pico -> store in buf1to2
+    uint16_t next = (head1to2 + 1) % BUF_SIZE;
+    if (next != tail1to2) {              // only store if buffer not full
+      buf1to2[head1to2] = rx1_byte;
+      head1to2 = next;
+    }
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx1_byte, 1);  // re-arm
+  }
+  else if (huart->Instance == USART2)
+  {
+    // Byte from PC -> store in buf2to1
+    uint16_t next = (head2to1 + 1) % BUF_SIZE;
+    if (next != tail2to1) {
+      buf2to1[head2to1] = rx2_byte;
+      head2to1 = next;
+    }
+    HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx2_byte, 1);  // re-arm
+  }
+}
+
+/**
+  * @brief  UART error callback — clears errors and re-arms receive so we don't get stuck.
+  */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    HAL_UART_Receive_IT(&huart1, (uint8_t*)&rx1_byte, 1);
+  }
+  else if (huart->Instance == USART2)
+  {
+    HAL_UART_Receive_IT(&huart2, (uint8_t*)&rx2_byte, 1);
+  }
+}
 
 /* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
-  * @retval None
   */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
 /**
