@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +31,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define INA219_ADDR             0x40   // default I2C address (A0=A1=GND)
+#define INA219_REG_CONFIG       0x00
+#define INA219_REG_SHUNTVOLTAGE 0x01
+#define INA219_REG_BUSVOLTAGE   0x02
+#define INA219_REG_POWER        0x03
+#define INA219_REG_CURRENT      0x04
+#define INA219_REG_CALIBRATION  0x05
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,9 +58,26 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
-/* USER CODE BEGIN PV */
 
+/* USER CODE BEGIN PV */
+volatile int state = 0;
+
+// PI controller gains (hard-coded, tune these)
+float kp = 0.4;
+float ki = 0.08;
+
+// Control loop variables
+volatile float desired_current = 200.0;   // target, in same units as readINA219 (1/3 mA)
+volatile float eint = 0.0;                 // integral of error
+
+// Data logging arrays (400 samples)
+#define NSAMPLES 400
+volatile int   log_index[NSAMPLES];
+volatile float log_desired[NSAMPLES];
+volatile float log_actual[NSAMPLES];
+volatile int   samples_collected = 0;
 /* USER CODE END PV */
+
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -66,11 +89,76 @@ static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+uint32_t readADC(void);
+void init_ina219(void);
+float read_ina219(void);
+void writeINA219(int reg, int value);
+signed short readINA219(unsigned char reg);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// Retarget printf to USART2 (the VCP to the PC)
+int __io_putchar(int ch)
+{
+    HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, 100);
+    return ch;
+}
+
+// Read one ADC sample from the potentiometer (PA0 / ADC1_IN0)
+uint32_t readADC(void)
+{
+    uint32_t raw;
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    {
+        raw = HAL_ADC_GetValue(&hadc1);
+    }
+    else
+    {
+        raw = 0;
+    }
+    HAL_ADC_Stop(&hadc1);
+    return raw;
+}
+
+// write 2 bytes to an INA219 register
+void writeINA219(int reg, int value)
+{
+    uint8_t buf[3];
+    buf[0] = reg;
+    buf[1] = value >> 8;
+    buf[2] = value & 0xff;
+    HAL_I2C_Master_Transmit(&hi2c2, INA219_ADDR << 1, buf, 3, 10);
+}
+
+// read 2 bytes from an INA219 register
+signed short readINA219(unsigned char reg)
+{
+    HAL_I2C_Master_Transmit(&hi2c2, INA219_ADDR << 1, &reg, 1, 10);
+    uint8_t buffer[2];
+    HAL_I2C_Master_Receive(&hi2c2, INA219_ADDR << 1, buffer, 2, 10);
+    signed short value = (buffer[0] << 8) | buffer[1];
+    return value;
+}
+
+// initialize the INA219 (10-bit, +/-160mV, 148us per sample)
+void init_ina219(void)
+{
+    unsigned short ina219_calValue = 1024;
+    unsigned short ina219_config = 0b0011000010001111;
+    writeINA219(INA219_REG_CALIBRATION, ina219_calValue);
+    writeINA219(INA219_REG_CONFIG, ina219_config);
+}
+
+// read current as a float in milliamps
+float read_ina219(void)
+{
+    float ma = 0;
+    signed short value = readINA219(INA219_REG_CURRENT);
+    ma = value / 3.0;
+    return ma;
+}
 
 /* USER CODE END 0 */
 
@@ -110,7 +198,17 @@ int main(void)
   MX_TIM2_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_ADCEx_Calibration_Start(&hadc1);
+  init_ina219();
+  HAL_TIM_Base_Start_IT(&htim2);
 
+  // Start PWM, motor OFF (both high)
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
+
+  printf("Current controller - send 'a' to run\r\n");
   /* USER CODE END 2 */
 
   /* Initialize leds */
@@ -122,16 +220,36 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  /* USER CODE BEGIN WHILE */
   while (1)
   {
+    uint8_t c;
+    if (HAL_UART_Receive(&huart2, &c, 1, 10) == HAL_OK)
+    {
+      if (c == 'a')
+      {
+        state = 1;                 // start the control run
+        while (state == 1) { }     // wait for the interrupt to finish 400 cycles
 
+        // Print the logged data
+        for (int i = 0; i < samples_collected; i++)
+        {
+          printf("%d %d %d\r\n",
+                 log_index[i],
+                 (int)log_desired[i],
+                 (int)log_actual[i]);
+        }
+        printf("done\r\n");
+      }
+    }
     /* USER CODE END WHILE */
+
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -141,14 +259,14 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  __HAL_FLASH_SET_LATENCY(FLASH_LATENCY_0);
+  __HAL_FLASH_SET_LATENCY(FLASH_LATENCY_1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV4;
+  RCC_OscInitStruct.HSIDiv = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -164,7 +282,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -191,7 +309,7 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_SEQ_FIXED;
@@ -286,7 +404,7 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x00402D41;
+  hi2c2.Init.Timing = 0x10805D88;
   hi2c2.Init.OwnAddress1 = 0;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -332,6 +450,8 @@ static void MX_TIM1_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
 
   /* USER CODE BEGIN TIM1_Init 1 */
 
@@ -339,7 +459,7 @@ static void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 24000;
+  htim1.Init.Period = 2400;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -352,6 +472,10 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
@@ -359,9 +483,42 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.BreakFilter = 0;
+  sBreakDeadTimeConfig.BreakAFMode = TIM_BREAK_AFMODE_INPUT;
+  sBreakDeadTimeConfig.Break2State = TIM_BREAK2_DISABLE;
+  sBreakDeadTimeConfig.Break2Polarity = TIM_BREAK2POLARITY_HIGH;
+  sBreakDeadTimeConfig.Break2Filter = 0;
+  sBreakDeadTimeConfig.Break2AFMode = TIM_BREAK_AFMODE_INPUT;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
 
 }
 
@@ -377,8 +534,8 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 0 */
 
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
@@ -389,7 +546,12 @@ static void MX_TIM2_Init(void)
   htim2.Init.Period = 48000;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -399,22 +561,9 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -476,6 +625,85 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* USER CODE BEGIN 4 */
+// 1 kHz timer interrupt (TIM2)
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim == &htim2)
+    {
+        static volatile int counter = 0;
+
+        // --- SAFETY: read pot, kill motor if outside safe range ---
+        uint32_t pos = readADC();
+        if (pos < 250 || pos > (4095 - 250))
+        {
+            // Motor off (both inputs high)
+            __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
+            __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+            return;   // skip control this cycle
+        }
+
+        // --- CONTROL: only run when state == 1 ---
+                if (state == 1)
+                {
+                    // Read actual current
+                    float actual_current = (float)readINA219(INA219_REG_CURRENT);
+
+                    // PI controller
+                    float error = desired_current - actual_current;
+                    eint = eint + error;
+                    float u = kp * error + ki * eint;   // control effort (can be + or -)
+
+                    // Magnitude sets PWM depth; sign sets direction
+                    float mag = u;
+                    if (mag < 0) mag = -mag;            // absolute value
+                    if (mag > 2400) mag = 2400;          // clamp to valid duty range
+
+                    // Direction is decided by the SIGN of the control effort u
+                    if (u >= 0)
+                    {
+                        // Drive one direction
+                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
+                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400 - (uint32_t)mag);
+                    }
+                    else
+                    {
+                        // Drive the other direction
+                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400 - (uint32_t)mag);
+                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+                    }
+
+                    // Log this sample
+                    if (counter < NSAMPLES)
+                    {
+                        log_index[counter]   = counter;
+                        log_desired[counter] = desired_current;
+                        log_actual[counter]  = actual_current;
+                    }
+
+                    counter++;
+
+                    // Flip desired current sign every 100 cycles
+                    if (counter % 100 == 0)
+                    {
+                        desired_current = -desired_current;
+                    }
+
+                    // After 400 cycles, stop
+                    if (counter >= 400)
+                    {
+                        // Motor off
+                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
+                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+                        samples_collected = counter;
+                        counter = 0;
+                        eint = 0.0;
+                        state = 0;        // signal main loop we're done
+                    }
+                }
+    }
+}
+
 
 /* USER CODE END 4 */
 
