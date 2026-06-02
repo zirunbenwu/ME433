@@ -61,7 +61,7 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 volatile int state = 0;
-
+#define EINTMAX 5000
 // PI controller gains (hard-coded, tune these)
 float kp = 0.4;
 float ki = 0.08;
@@ -644,63 +644,65 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         }
 
         // --- CONTROL: only run when state == 1 ---
-                if (state == 1)
-                {
-                    // Read actual current
-                    float actual_current = (float)readINA219(INA219_REG_CURRENT);
+        if (state == 1)
+              {
+                  // Read actual current
+                  float actual_current = (float)readINA219(INA219_REG_CURRENT);
 
-                    // PI controller
-                    float error = desired_current - actual_current;
-                    eint = eint + error;
-                    float u = kp * error + ki * eint;   // control effort (can be + or -)
+                  // Set desired current as a 4-phase square wave based on counter
+                  if (counter < NSAMPLES/4)
+                      desired_current = -600;
+                  else if (counter < NSAMPLES/2)
+                      desired_current = 600;
+                  else if (counter < NSAMPLES*3/4)
+                      desired_current = -600;
+                  else
+                      desired_current = 600;
 
-                    // Magnitude sets PWM depth; sign sets direction
-                    float mag = u;
-                    if (mag < 0) mag = -mag;            // absolute value
-                    if (mag > 2400) mag = 2400;          // clamp to valid duty range
+                  // PI controller with anti-windup
+                  float error = desired_current - actual_current;
+                  eint = eint + error;
+                  if (eint > EINTMAX)  eint = EINTMAX;     // anti-windup clamp
+                  if (eint < -EINTMAX) eint = -EINTMAX;
+                  float u = kp * error + ki * eint;        // control effort (+ or -)
 
-                    // Direction is decided by the SIGN of the control effort u
-                    if (u >= 0)
-                    {
-                        // Drive one direction
-                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
-                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400 - (uint32_t)mag);
-                    }
-                    else
-                    {
-                        // Drive the other direction
-                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400 - (uint32_t)mag);
-                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
-                    }
+                  // Magnitude sets PWM depth; sign sets direction
+                  float mag = u;
+                  if (mag < 0) mag = -mag;
+                  if (mag > 2400) mag = 2400;
 
-                    // Log this sample
-                    if (counter < NSAMPLES)
-                    {
-                        log_index[counter]   = counter;
-                        log_desired[counter] = desired_current;
-                        log_actual[counter]  = actual_current;
-                    }
+                  if (u >= 0)
+                  {
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400 - (uint32_t)mag);
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+                  }
+                  else
+                  {
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400 - (uint32_t)mag);
+                  }
 
-                    counter++;
+                  // Log this sample
+                  if (counter < NSAMPLES)
+                  {
+                      log_index[counter]   = counter;
+                      log_desired[counter] = desired_current;
+                      log_actual[counter]  = actual_current;
+                  }
 
-                    // Flip desired current sign every 100 cycles
-                    if (counter % 100 == 0)
-                    {
-                        desired_current = -desired_current;
-                    }
+                  counter++;
 
-                    // After 400 cycles, stop
-                    if (counter >= 400)
-                    {
-                        // Motor off
-                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
-                        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
-                        samples_collected = counter;
-                        counter = 0;
-                        eint = 0.0;
-                        state = 0;        // signal main loop we're done
-                    }
-                }
+                  // After NSAMPLES cycles, stop
+                  if (counter >= NSAMPLES)
+                  {
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+                      samples_collected = counter;
+                      counter = 0;
+                      eint = 0.0;
+                      state = 0;
+                  }
+              }
     }
 }
 

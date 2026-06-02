@@ -14,4 +14,4 @@
 ../Core/Src/main.c:575:13:MX_USART2_UART_Init	8	static
 ../Core/Src/main.c:611:13:MX_GPIO_Init	24	static
 ../Core/Src/main.c:630:6:HAL_TIM_PeriodElapsedCallback	48	static
-../Core/Src/main.c:714:6:Error_Handler	8	static,ignoring_inline_asm
+../Core/Src/main.c:716:6:Error_Handler	8	static,ignoring_inline_asm
