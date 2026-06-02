@@ -64,7 +64,7 @@ volatile int state = 0;
 #define EINTMAX 5000
 // PI controller gains (hard-coded, tune these)
 float kp = 0.4;
-float ki = 0.08;
+float ki = 0.2;
 
 // Control loop variables
 volatile float desired_current = 200.0;   // target, in same units as readINA219 (1/3 mA)
@@ -201,6 +201,8 @@ int main(void)
   HAL_ADCEx_Calibration_Start(&hadc1);
   init_ina219();
   HAL_TIM_Base_Start_IT(&htim2);
+  signed short cfg = readINA219(INA219_REG_CONFIG);
+  printf("Config readback: 0x%04X (expect 0x308F)\r\n", (unsigned short)cfg);
 
   // Start PWM, motor OFF (both high)
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
@@ -673,13 +675,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
                   if (u >= 0)
                   {
-                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400 - (uint32_t)mag);
-                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);              // swapped
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400 - (uint32_t)mag);
                   }
                   else
                   {
-                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400);
-                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400 - (uint32_t)mag);
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2400 - (uint32_t)mag);  // swapped
+                      __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 2400);
                   }
 
                   // Log this sample
