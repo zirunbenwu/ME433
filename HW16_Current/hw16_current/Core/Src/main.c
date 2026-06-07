@@ -38,6 +38,8 @@
 #define INA219_REG_POWER        0x03
 #define INA219_REG_CURRENT      0x04
 #define INA219_REG_CALIBRATION  0x05
+#define AS5600_ADDR        0x36
+#define AS5600_RAW_ANGLE   0x0C   // high byte; low byte at 0x0D
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -103,6 +105,17 @@ int __io_putchar(int ch)
 {
     HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, 100);
     return ch;
+}
+
+// Read the 12-bit raw angle from the AS5600 (0-4095 = 0-360 degrees)
+uint16_t readAS5600(void)
+{
+    uint8_t reg = AS5600_RAW_ANGLE;
+    uint8_t buf[2];
+    HAL_I2C_Master_Transmit(&hi2c2, AS5600_ADDR << 1, &reg, 1, 10);
+    HAL_I2C_Master_Receive(&hi2c2, AS5600_ADDR << 1, buf, 2, 10);
+    uint16_t angle = ((buf[0] << 8) | buf[1]) & 0x0FFF;  // 12-bit
+    return angle;
 }
 
 // Read one ADC sample from the potentiometer (PA0 / ADC1_IN0)
@@ -226,10 +239,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    uint8_t c;
-    if (HAL_UART_Receive(&huart2, &c, 1, 10) == HAL_OK)
-    {
-      if (c == 'a')
+
+	    uint8_t c;
+	    if (HAL_UART_Receive(&huart2, &c, 1, 10) == HAL_OK)
+	    {
+	      if (c == 'a')
       {
         state = 1;                 // start the control run
         while (state == 1) { }     // wait for the interrupt to finish 400 cycles
