@@ -14,7 +14,7 @@ HEIGHT = 700
 # ---------------------------------------------------------------------------
 # HARDWARE SERIAL CONFIG — set your Pico's port
 # ---------------------------------------------------------------------------
-SERIAL_PORT = "COM6"        # Windows "COM5"; Mac/Linux "/dev/tty.usbmodem1101"
+SERIAL_PORT = "COM6"        # Windows "COM5"
 SERIAL_BAUD = 115200
 ENC_TO_THETA_SIGN = -1      # flip to -1 if handle tilts bottle the wrong way
 ENC_DEG_OFFSET    = 0.0     # offset (deg) if upright != encoder zero

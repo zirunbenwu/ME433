@@ -15,8 +15,8 @@
 #include "hardware/i2c.h"
 
 // ============================ HX711 (load cell) ============================
-#define PIN_SCK     14
-#define PIN_DT      15
+#define PIN_SCK     17
+#define PIN_DT      16
 #define IIR_ALPHA   0.15f          // 1st-order LPF; ~2 Hz cutoff at fs~80 Hz
 
 // load cell calibration:  force_N = (raw - LC_TARE) * LC_SCALE
@@ -63,8 +63,8 @@ void hx711_tare(int n) {
 
 // ============================ AS5600 (encoder) ============================
 #define I2C_PORT    i2c0
-#define I2C_SDA     16
-#define I2C_SCL     17
+#define I2C_SDA     14
+#define I2C_SCL     15
 #define I2C_FREQ    400000
 
 #define AS5600_ADDR     0x36
@@ -163,6 +163,39 @@ int main(void) {
 
     printf("# streaming: D,force_N,angle_deg\n");
 
+
+        printf("\n# === SENSOR TEST MODE ===\n");
+    printf("# rotate encoder: angle should change 0..+/-180\n");
+    printf("# press/load cell: force counts should change\n\n");
+
+    while (true) {
+        // --- encoder ---
+        uint16_t raw_ang;
+        bool ang_ok = as5600_read_12bit(REG_ANGLE, &raw_ang);
+        float angle_deg = 0.0f;
+        as5600_get_angle_deg(&angle_deg);
+
+        uint8_t status = 0, agc = 0;
+        as5600_read_reg(REG_STATUS, &status);
+        as5600_read_reg(REG_AGC, &agc);
+
+        // --- load cell (one fresh sample, also show filtered) ---
+        int32_t r = hx711_read();
+        lc_filt = IIR_ALPHA * (float)r + (1.0f - IIR_ALPHA) * lc_filt;
+        float force_N = (lc_filt - (float)LC_TARE) * LC_SCALE;
+
+        // --- print a readable status block ---
+        printf("ENC: raw=%4u  angle=%+7.2f deg  %s  AGC=%3u   |   "
+               "LC: raw=%8ld  filt=%8.0f  force=%+8.2f N\n",
+               raw_ang, angle_deg,
+               (status & STATUS_MD) ? "magOK " :
+               ((status & STATUS_ML) ? "WEAK  " :
+               ((status & STATUS_MH) ? "STRONG" : "??????")),
+               agc,
+               (long)r, lc_filt, force_N);
+
+        sleep_ms(200);   // ~5 Hz, slow enough to read by eye
+    }
     // ---- continuous stream ----
     // The HX711 read blocks until its next sample (~80 Hz), pacing the loop.
     // After each load cell sample we read the encoder (fast over I2C) and emit.
