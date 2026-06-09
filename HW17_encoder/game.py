@@ -12,12 +12,10 @@ except ImportError:
 WIDTH  = 1000
 HEIGHT = 700
 
-# ---------------------------------------------------------------------------
-# HARDWARE SERIAL CONFIG — set your Pico's port
-# ---------------------------------------------------------------------------
-SERIAL_PORT = "COM12"       # Windows "COM12"; Mac/Linux "/dev/tty.usbmodemXXXX"
+
+SERIAL_PORT = "COM12"    #check port number 
 SERIAL_BAUD = 115200
-ENC_TO_THETA_SIGN = 1       # flip to -1 if handle tilts bottle the wrong way
+ENC_TO_THETA_SIGN = 1       
 ENC_DEG_OFFSET    = 0.0     # offset (deg) if upright != encoder zero
 
 # Pico streams 4 columns after receiving "0":  raw, filt, time_ms, angle

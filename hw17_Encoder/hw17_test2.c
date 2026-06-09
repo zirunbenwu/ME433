@@ -70,7 +70,7 @@ int32_t hx711_read(void) {
 #define STATUS_MD   (1 << 5)
 
 static uint16_t enc_zero_raw = 0;  // startup position captured as zero
-static int      enc_dir_sign = -1; // +1 if CW positive; set -1 to flip
+static int      enc_dir_sign = -1; // 
 
 bool as5600_read_reg(uint8_t reg, uint8_t *value) {
     int w = i2c_write_blocking(I2C_PORT, AS5600_ADDR, &reg, 1, true);
