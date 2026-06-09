@@ -23,37 +23,35 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_BOARD pico CACHE STRING "Board type")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(load_cell_testing C CXX ASM)
+project(picotest C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(load_cell_testing load_cell_testing.c )
+add_executable(picotest picotest.c )
 
-pico_set_program_name(load_cell_testing "load_cell_testing")
-pico_set_program_version(load_cell_testing "0.1")
+pico_set_program_name(picotest "picotest")
+pico_set_program_version(picotest "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(load_cell_testing 0)
-pico_enable_stdio_usb(load_cell_testing 1)
+pico_enable_stdio_uart(picotest 0)
+pico_enable_stdio_usb(picotest 1)
 
 # Add the standard library to the build
-target_link_libraries(load_cell_testing
-hardware_sync
-hardware_i2c
+target_link_libraries(picotest
         pico_stdlib)
 
 # Add the standard include files to the build
-target_include_directories(load_cell_testing PRIVATE
+target_include_directories(picotest PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
 
-pico_add_extra_outputs(load_cell_testing)
+pico_add_extra_outputs(picotest)
 

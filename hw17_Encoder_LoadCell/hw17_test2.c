@@ -5,8 +5,8 @@
 #include "hardware/i2c.h"
 
 // ============================ HX711 (load cell) ============================
-#define PIN_SCK         16
-#define PIN_DT          17
+#define PIN_SCK         14
+#define PIN_DT          15
 
 #define MAX_SAMPLES     4000
 #define IIR_ALPHA       0.15f  // 1st-order LPF; ~2 Hz cutoff at fs=80Hz
@@ -60,8 +60,8 @@ int32_t hx711_read(void) {
 
 // ============================ AS5600 (encoder) ============================
 #define I2C_PORT    i2c0
-#define I2C_SDA     12
-#define I2C_SCL     13
+#define I2C_SDA     17
+#define I2C_SCL     16
 #define I2C_FREQ    400000
 
 #define AS5600_ADDR     0x36
