@@ -47,6 +47,7 @@ pico_enable_stdio_usb(load_cell_testing 1)
 # Add the standard library to the build
 target_link_libraries(load_cell_testing
 hardware_sync
+hardware_i2c
         pico_stdlib)
 
 # Add the standard include files to the build

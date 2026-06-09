@@ -23,37 +23,42 @@ if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
-set(PICO_BOARD pico2 CACHE STRING "Board type")
+set(PICO_BOARD pico2_w CACHE STRING "Board type")
 
 # Pull in Raspberry Pi Pico SDK (must be before project)
 include(pico_sdk_import.cmake)
 
-project(HW17_encoder C CXX ASM)
+project(hw17_test2 C CXX ASM)
 
 # Initialise the Raspberry Pi Pico SDK
 pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(HW17_encoder HW17_encoder.c )
+add_executable(hw17_test2 hw17_test2.c )
 
-pico_set_program_name(HW17_encoder "HW17_encoder")
-pico_set_program_version(HW17_encoder "0.1")
+pico_set_program_name(hw17_test2 "hw17_test2")
+pico_set_program_version(hw17_test2 "0.1")
 
 # Modify the below lines to enable/disable output over UART/USB
-pico_enable_stdio_uart(HW17_encoder 0)
-pico_enable_stdio_usb(HW17_encoder 1)
+pico_enable_stdio_uart(hw17_test2 0)
+pico_enable_stdio_usb(hw17_test2 1)
 
 # Add the standard library to the build
-target_link_libraries(HW17_encoder
+target_link_libraries(hw17_test2
 hardware_i2c
 hardware_sync
         pico_stdlib)
 
 # Add the standard include files to the build
-target_include_directories(HW17_encoder PRIVATE
+target_include_directories(hw17_test2 PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
 )
 
-pico_add_extra_outputs(HW17_encoder)
+# Add any user requested libraries
+target_link_libraries(hw17_test2 
+        
+        )
+
+pico_add_extra_outputs(hw17_test2)
 

@@ -1,5 +1,6 @@
 import math
 import threading
+import time
 import pygame
 
 try:
@@ -14,20 +15,26 @@ HEIGHT = 700
 # ---------------------------------------------------------------------------
 # HARDWARE SERIAL CONFIG — set your Pico's port
 # ---------------------------------------------------------------------------
-SERIAL_PORT = "COM6"        # Windows "COM5"
+SERIAL_PORT = "COM12"       # Windows "COM12"; Mac/Linux "/dev/tty.usbmodemXXXX"
 SERIAL_BAUD = 115200
-ENC_TO_THETA_SIGN = -1      # flip to -1 if handle tilts bottle the wrong way
+ENC_TO_THETA_SIGN = 1       # flip to -1 if handle tilts bottle the wrong way
 ENC_DEG_OFFSET    = 0.0     # offset (deg) if upright != encoder zero
 
-# data line format from Pico:  D,<force_N>,<angle_deg>\n
-hw_force_N   = 0.0
+# Pico streams 4 columns after receiving "0":  raw, filt, time_ms, angle
+hw_force_N   = 0.0          # filtered count, baseline-subtracted (tared)
 hw_angle_deg = 0.0
 hw_connected = False
 _hw_lock = threading.Lock()
 
+# --- tare for the displayed count ---
+tare_offset  = 0.0
+tare_samples = []           # collects first readings to average
+TARE_N       = 30           # samples averaged for the baseline
+tared        = False
+
 
 def _serial_worker():
-    global hw_force_N, hw_angle_deg, hw_connected
+    global hw_force_N, hw_angle_deg, hw_connected, tare_offset, tared
     if not HAVE_SERIAL:
         print("[serial] pyserial not installed; SIM mode. (pip install pyserial)")
         return
@@ -38,8 +45,18 @@ def _serial_worker():
         print("[serial] SIM mode (keyboard A/D for tilt).")
         return
     print(f"[serial] connected {SERIAL_PORT} @ {SERIAL_BAUD}")
+
+    # let the Pico settle, then trigger stream mode (send "0\n")
+    time.sleep(2.0)
+    try:
+        ser.reset_input_buffer()
+    except Exception:
+        pass
+    ser.write(b"0\n")
+
     with _hw_lock:
         hw_connected = True
+
     buf = b""
     while True:
         try:
@@ -50,19 +67,28 @@ def _serial_worker():
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 text = line.decode("utf-8", errors="ignore").strip()
-                if not text.startswith("D,"):
+                # skip handshake / batch markers
+                if (text in ("STREAM", "STOP")
+                        or text.startswith("BEGIN") or text.startswith("END")):
                     continue
                 parts = text.split(",")
-                if len(parts) != 3:
+                if len(parts) != 4:          # raw, filt, time_ms, angle
                     continue
                 try:
-                    f = float(parts[1])
-                    a = float(parts[2])
+                    filt  = float(parts[1])  # filtered count (smoother than raw)
+                    angle = float(parts[3])  # angle in degrees
                 except ValueError:
                     continue
                 with _hw_lock:
-                    hw_force_N = f
-                    hw_angle_deg = a
+                    # build the baseline from the first TARE_N samples
+                    if not tared:
+                        tare_samples.append(filt)
+                        if len(tare_samples) >= TARE_N:
+                            tare_offset = sum(tare_samples) / len(tare_samples)
+                            tared = True
+                    # subtract baseline so rest = 0
+                    hw_force_N = filt - tare_offset
+                    hw_angle_deg = angle
         except Exception:
             continue
 
@@ -91,7 +117,6 @@ PIVOT_Y    = HEIGHT * 0.58
 
 PLOT_LEN   = 320
 force_hist = [0.0] * PLOT_LEN
-LC_FORCE_MAX = 30.0         # plot scale reference
 
 
 def render_angle(th):
@@ -140,6 +165,15 @@ def update(dt):
 
     force_hist.append(force if connected else 0.0)
     force_hist.pop(0)
+
+
+def on_key_down(key):
+    # press T to re-tare (recapture the resting baseline)
+    global tare_samples, tared
+    if key == keys.T:
+        with _hw_lock:
+            tare_samples = []
+            tared = False
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +227,7 @@ def draw():
         connected = hw_connected
         force = hw_force_N
         enc_deg = hw_angle_deg
+        is_tared = tared
 
     thr = render_angle(theta)
     pivot_px = (WIDTH * 0.32, PIVOT_Y)
@@ -211,18 +246,23 @@ def draw():
     src = "ENCODER" if connected else "keyboard (A/D)"
     screen.draw.text(f"tilt  : {math.degrees(theta):6.1f} deg   [{src}]",
                      (40, 30), color=(220, 225, 235), fontsize=24)
-    screen.draw.text(f"force : {force:7.2f} N",
+    screen.draw.text(f"count : {force:9.1f}",
                      (40, 62), color=(240, 220, 90), fontsize=24)
 
     badge = "HW CONNECTED" if connected else "SIM (no hardware)"
     bcol = (120, 220, 140) if connected else (200, 160, 90)
     screen.draw.text(badge, (WIDTH - 230, 30), color=bcol, fontsize=20)
 
-    # live force plot at the bottom
+    tstat = "tared" if is_tared else "taring... keep unloaded"
+    tcol = (120, 220, 140) if is_tared else (230, 180, 90)
+    screen.draw.text(f"[{tstat}]   T = re-tare", (WIDTH - 320, 58),
+                     color=tcol, fontsize=18)
+
+    # live count plot at the bottom (filtered, tared)
     plot_w = WIDTH - 80
     plot_h = 150
     plot_x = 40
     plot_y = HEIGHT - plot_h - 30
     fo_max = max(1.0, max(abs(v) for v in force_hist) * 1.1)
     draw_plot(plot_x, plot_y, plot_w, plot_h, force_hist, fo_max,
-              (240, 220, 90), f"load cell force (N)   range +/-{fo_max:.1f}")
+              (240, 220, 90), f"filtered count (tared)   range +/-{fo_max:.0f}")
